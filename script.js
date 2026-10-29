@@ -1,460 +1,732 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   30 & FABULOUS — interaction layer
+   Vanilla JS. No dependencies. Progressive enhancement friendly.
+   ═══════════════════════════════════════════════════════════════════════ */
 (() => {
   'use strict';
 
-  // PERSONALIZATION: replace these two links before publishing.
-  const RSVP_URL = 'https://t.me/your_username';
+  /* ── CONFIG: personalize before publishing ───────────────────────── */
+  const RSVP_ENDPOINT = ''; // optional POST endpoint (Formspree / own API). Empty = save locally.
   const WISHLIST_URL = 'https://example.com/your-wishlist';
   const EVENT_START = new Date('2026-12-12T11:00:00+03:00');
   const EVENT_END = new Date('2026-12-12T17:00:00+03:00');
+  const RSVP_DEADLINE = new Date('2026-12-01T23:59:59+03:00');
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const pad = n => String(n).padStart(2, '0');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const isTouch = window.matchMedia('(hover: none)').matches;
 
-  const rsvpLink = $('#rsvpLink');
-  const wishlistLink = $('#wishlistLink');
-  if (rsvpLink) rsvpLink.href = RSVP_URL;
-  if (wishlistLink) wishlistLink.href = WISHLIST_URL;
+  /* ── TOAST ───────────────────────────────────────────────────────── */
+  const toast = $('#toastNotification');
+  let toastTimer = 0;
+  const showToast = (message, duration = 3600) => {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), duration);
+  };
 
-  // Scroll reveals: fail open so the page remains readable if the API is unavailable.
+  /* ── HEADER SCROLL STATE ─────────────────────────────────────────── */
+  const header = $('#siteHeader');
+  const stickyCta = $('#mobileStickyCta');
+  const onScroll = () => {
+    const y = window.scrollY;
+    header?.classList.toggle('is-scrolled', y > 24);
+    stickyCta?.classList.toggle('is-visible', y > window.innerHeight * 0.9);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  /* ── MOBILE MENU ─────────────────────────────────────────────────── */
+  const burger = $('#burgerBtn');
+  const mobileMenu = $('#mobileMenu');
+  const closeMenu = $('#closeMenuBtn');
+
+  const setMenu = open => {
+    if (!mobileMenu) return;
+    mobileMenu.classList.toggle('is-open', open);
+    mobileMenu.setAttribute('aria-hidden', open ? 'false' : 'true');
+    burger?.classList.toggle('is-open', open);
+    burger?.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('menu-open', open);
+  };
+  burger?.addEventListener('click', () => setMenu(!mobileMenu.classList.contains('is-open')));
+  closeMenu?.addEventListener('click', () => setMenu(false));
+  $$('.mobile-nav-link', mobileMenu || document).forEach(link => link.addEventListener('click', () => setMenu(false)));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setMenu(false); });
+
+  /* ── ACTIVE NAV LINK ON SCROLL ───────────────────────────────────── */
+  const sections = ['hero', 'about', 'program', 'dresscode', 'timeline', 'wishlist', 'faq', 'rsvp']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+
+  if ('IntersectionObserver' in window) {
+    const navObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const id = entry.target.id;
+        $$('.nav-link').forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+        });
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    sections.forEach(section => navObserver.observe(section));
+  }
+
+  /* ── SCROLL REVEAL ───────────────────────────────────────────────── */
+  const revealEls = $$('.reveal-up, .reveal-left, .reveal-right');
   if ('IntersectionObserver' in window && !reduceMotion) {
-    const revealObserver = new IntersectionObserver((entries, observer) => {
+    const revealObserver = new IntersectionObserver((entries, obs) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add('is-visible');
-          observer.unobserve(entry.target);
+          obs.unobserve(entry.target);
         }
       });
-    }, { threshold: 0.14, rootMargin: '0px 0px -30px 0px' });
-    $$('.reveal').forEach(el => revealObserver.observe(el));
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+    revealEls.forEach(el => revealObserver.observe(el));
   } else {
-    $$('.reveal').forEach(el => el.classList.add('is-visible'));
+    revealEls.forEach(el => el.classList.add('is-visible'));
   }
 
-  // Scroll progress bar.
-  const progress = $('#scrollProgress');
-  let scrollScheduled = false;
-  const updateScrollProgress = () => {
-    if (!progress) return;
-    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    const ratio = maxScroll > 0 ? Math.min(1, Math.max(0, window.scrollY / maxScroll)) : 0;
-    progress.style.width = `${ratio * 100}%`;
-    scrollScheduled = false;
-  };
-  window.addEventListener('scroll', () => {
-    if (!scrollScheduled) {
-      window.requestAnimationFrame(updateScrollProgress);
-      scrollScheduled = true;
-    }
-  }, { passive: true });
-  updateScrollProgress();
+  /* ── CUSTOM CURSOR ───────────────────────────────────────────────── */
+  if (!isTouch && !reduceMotion) {
+    const cursor = $('#cursor');
+    const label = $('#cursorLabel');
+    if (cursor) {
+      let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+      let cx = mx, cy = my;
+      let rx = mx, ry = my;
+      const dot = $('.cursor-dot', cursor);
+      const ring = $('.cursor-ring', cursor);
 
-  // Countdown with a graceful post-event state.
-  const pad = value => String(value).padStart(2, '0');
-  const updateCountdown = () => {
-    const note = $('#countdownNote');
-    const now = Date.now();
-    if (now >= EVENT_END.getTime()) {
-      ['days', 'hours', 'minutes', 'seconds'].forEach(id => {
-        const target = document.getElementById(id);
-        if (target) target.textContent = '00';
+      window.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; }, { passive: true });
+
+      const loop = () => {
+        cx += (mx - cx) * 0.55;
+        cy += (my - cy) * 0.55;
+        rx += (mx - rx) * 0.16;
+        ry += (my - ry) * 0.16;
+        if (dot) dot.style.transform = `translate(${cx}px, ${cy}px)`;
+        if (ring) ring.style.transform = `translate(${rx}px, ${ry}px)`;
+        if (label) label.style.transform = `translate(${rx}px, ${ry}px)`;
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+
+      const hoverables = 'a, button, .palette-item, .program-card, .faq-question, summary, input, select, textarea';
+      document.addEventListener('mouseover', e => {
+        if (e.target.closest(hoverables)) document.body.classList.add('cursor-hover');
       });
-      if (note) note.textContent = 'Это было прекрасно. Спасибо, что была частью этого дня! ♥';
-      return;
-    }
-    if (now >= EVENT_START.getTime()) {
-      ['days', 'hours', 'minutes', 'seconds'].forEach(id => {
-        const target = document.getElementById(id);
-        if (target) target.textContent = '00';
+      document.addEventListener('mouseout', e => {
+        if (e.target.closest(hoverables)) document.body.classList.remove('cursor-hover');
       });
-      if (note) note.textContent = 'Сегодня сияем на максимум! ✨ До встречи!';
-      return;
+      document.addEventListener('mouseleave', () => { cursor.style.opacity = '0'; });
+      document.addEventListener('mouseenter', () => { cursor.style.opacity = '1'; });
     }
-    const diff = EVENT_START.getTime() - now;
-    const values = {
-      days: Math.floor(diff / 86400000),
-      hours: Math.floor((diff % 86400000) / 3600000),
-      minutes: Math.floor((diff % 3600000) / 60000),
-      seconds: Math.floor((diff % 60000) / 1000)
-    };
-    Object.entries(values).forEach(([id, value]) => {
-      const target = document.getElementById(id);
-      if (target) target.textContent = pad(value);
+  }
+
+  /* ── MAGNETIC BUTTONS ────────────────────────────────────────────── */
+  if (!isTouch && !reduceMotion) {
+    $$('.magnetic-target').forEach(el => {
+      el.addEventListener('mousemove', e => {
+        const r = el.getBoundingClientRect();
+        const x = (e.clientX - r.left - r.width / 2) / r.width;
+        const y = (e.clientY - r.top - r.height / 2) / r.height;
+        el.style.transform = `translate(${x * 7}px, ${y * 6}px)`;
+      });
+      el.addEventListener('mouseleave', () => { el.style.transform = ''; });
     });
-  };
-  updateCountdown();
-  window.setInterval(updateCountdown, 1000);
+  }
 
-  // Calendar invite download. Uses the event's Kaluga/Moscow local time (UTC+3).
-  const escapeICS = value => String(value)
+  /* ── HERO 3D TILT ────────────────────────────────────────────────── */
+  const tiltCard = $('#heroPhotoTilt');
+  if (tiltCard && !isTouch && !reduceMotion) {
+    const glare = $('.tilt-glare', tiltCard);
+    let raf = 0;
+    tiltCard.addEventListener('mousemove', e => {
+      const r = tiltCard.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width;
+      const py = (e.clientY - r.top) / r.height;
+      const rx = (0.5 - py) * 12;
+      const ry = (px - 0.5) * 14;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        tiltCard.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+        if (glare) {
+          glare.style.setProperty('--gx', `${px * 100}%`);
+          glare.style.setProperty('--gy', `${py * 100}%`);
+        }
+      });
+    });
+    tiltCard.addEventListener('mouseleave', () => {
+      tiltCard.style.transform = 'rotateX(0deg) rotateY(0deg)';
+    });
+  }
+
+  /* ── COUNTDOWN ───────────────────────────────────────────────────── */
+  const timerNodes = {
+    days: $('#timerDays'),
+    hours: $('#timerHours'),
+    minutes: $('#timerMinutes'),
+    seconds: $('#timerSeconds'),
+  };
+  const lastValues = {};
+
+  const setDigit = (key, value) => {
+    const node = timerNodes[key];
+    if (!node) return;
+    const text = pad(value);
+    if (node.textContent === text) return;
+    node.textContent = text;
+    if (!reduceMotion && lastValues[key] !== undefined) {
+      node.classList.remove('tick');
+      void node.offsetWidth;
+      node.classList.add('tick');
+    }
+    lastValues[key] = value;
+  };
+
+  const tick = () => {
+    const now = Date.now();
+    const diff = Math.max(0, EVENT_START.getTime() - now);
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+
+    setDigit('days', days);
+    setDigit('hours', hours);
+    setDigit('minutes', minutes);
+    setDigit('seconds', seconds);
+  };
+  tick();
+  window.setInterval(tick, 1000);
+
+  /* ── PALETTE PICKER ──────────────────────────────────────────────── */
+  $$('.palette-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const picked = item.classList.contains('is-picked');
+      $$('.palette-item').forEach(i => i.classList.remove('is-picked'));
+      if (!picked) {
+        item.classList.add('is-picked');
+        const name = $('strong', item)?.textContent || 'этот вайб';
+        showToast(`Отличный выбор! ${name} — твой образ будет незабываемым ✨`, 3000);
+      }
+    });
+  });
+
+  /* ── LOOK GENERATOR ──────────────────────────────────────────────── */
+  const looks = [
+    { emoji: '💃', title: 'Коктейльное платье в пайетках', sub: 'Серебряные лодочки + акцентные серьги' },
+    { emoji: '🖤', title: 'Черное мини + фуксия', sub: 'Яркая помада и клатч с блестками' },
+    { emoji: '✨', title: 'Шелковый костюм с пайетками', sub: 'Кроп-топ + широкие брюки + каблук' },
+    { emoji: '🌹', title: 'Платье цвета спелой вишни', sub: 'Золотые украшения и атласные перчатки' },
+    { emoji: '🦋', title: 'Платье-комбинация шампань', sub: 'Меховая накидка и мини-сумочка' },
+    { emoji: '👑', title: 'Корсет + кожаная юбка', sub: 'Дерзкий образ для главной героини вечера' },
+    { emoji: '💎', title: 'Белый смокинг оверсайз', sub: 'Стразы, красная помада и высокий каблук' },
+    { emoji: '🌸', title: 'Платье с объемными цветами', sub: 'Нежные локоны и жемчужные серьги' },
+  ];
+  const genBtn = $('#genLookBtn');
+  const preview = $('#lookPreviewBadge');
+  const genEmoji = $('#genEmoji');
+  const genTitle = $('#genTitle');
+  const genSub = $('#genSub');
+  let lastLook = -1;
+
+  genBtn?.addEventListener('click', () => {
+    let idx = Math.floor(Math.random() * looks.length);
+    if (idx === lastLook) idx = (idx + 1) % looks.length;
+    lastLook = idx;
+    const look = looks[idx];
+
+    if (genEmoji) genEmoji.textContent = look.emoji;
+    if (genTitle) genTitle.textContent = look.title;
+    if (genSub) genSub.textContent = look.sub;
+
+    if (preview && !reduceMotion) {
+      preview.classList.remove('flip');
+      void preview.offsetWidth;
+      preview.classList.add('flip');
+    }
+    showToast('Образ подобран! Сохрани скриншот и беги за нарядом 💫', 3200);
+  });
+
+  /* ── CALENDAR (.ics) ─────────────────────────────────────────────── */
+  const escapeICS = v => String(v)
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;');
+
   const formatICS = date => {
     const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-    }).formatToParts(date).reduce((result, part) => (result[part.type] = part.value, result), {});
+      timeZone: 'Europe/Moscow',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
     return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
   };
-  const calendarButton = $('#calendarButton');
-  if (calendarButton) {
-    calendarButton.addEventListener('click', () => {
-      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-      const ics = [
-        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//30 and Fabulous//Birthday invitation//RU',
-        'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
-        `UID:birthday-30-fabulous-${formatICS(EVENT_START)}@invite`,
-        `DTSTAMP:${stamp}`, `DTSTART;TZID=Europe/Moscow:${formatICS(EVENT_START)}`,
-        `DTEND;TZID=Europe/Moscow:${formatICS(EVENT_END)}`,
-        `SUMMARY:${escapeICS('30 & fabulous — день рождения')}`,
-        `LOCATION:${escapeICS('Калуга')}`,
-        `DESCRIPTION:${escapeICS('День рождения: мастер-класс, фотосессия и ресторан. Точное расписание и адреса будут сообщены ближе к дате.')}`,
-        'END:VEVENT', 'END:VCALENDAR', ''
-      ].join('\r\n');
-      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '30-and-fabulous-12-12-2026.ics';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      const note = $('#calendarNote');
-      if (note) note.textContent = 'Готово — открой файл и сохрани событие в календаре ♥';
-    });
-  }
 
-  // Active navigation marker, helpful on long scrolls.
-  if ('IntersectionObserver' in window) {
-    const sectionLinks = $$('.main-nav a');
-    const sectionObserver = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          sectionLinks.forEach(link => {
-            const active = link.getAttribute('href') === `#${entry.target.id}`;
-            link.classList.toggle('active', active);
-            if (active) link.setAttribute('aria-current', 'location');
-            else link.removeAttribute('aria-current');
-          });
-        }
-      });
-    }, { rootMargin: '-35% 0px -55% 0px' });
-    ['invite', 'plan', 'details', 'rsvp'].forEach(id => {
-      const section = document.getElementById(id);
-      if (section) sectionObserver.observe(section);
-    });
-  }
+  const downloadCalendar = () => {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0',
+      'PRODID:-//30 and Fabulous//Birthday Invitation//RU',
+      'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+      'BEGIN:VTIMEZONE', 'TZID:Europe/Moscow', 'X-LIC-LOCATION:Europe/Moscow',
+      'BEGIN:STANDARD', 'TZOFFSETFROM:+0300', 'TZOFFSETTO:+0300',
+      'TZNAME:MSK', 'DTSTART:19700101T000000', 'END:STANDARD', 'END:VTIMEZONE',
+      'BEGIN:VEVENT',
+      `UID:birthday-30-fabulous-${formatICS(EVENT_START)}@invite`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;TZID=Europe/Moscow:${formatICS(EVENT_START)}`,
+      `DTEND;TZID=Europe/Moscow:${formatICS(EVENT_END)}`,
+      `SUMMARY:${escapeICS('30 & Fabulous — день рождения')}`,
+      `LOCATION:${escapeICS('Калуга')}`,
+      `DESCRIPTION:${escapeICS('Мастер-класс, фотосессия и праздничный ужин. Точные адреса придут в закрытый чат накануне. Dress code: fuchsia, silver, wine, champagne.')}`,
+      'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY',
+      `DESCRIPTION:${escapeICS('Завтра день рождения! Готовим образ 💖')}`,
+      'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
 
-  // Tiny sparkles, restricted to the background and disabled for reduced-motion users.
-  const sparkleLayer = $('#sparkleLayer');
-  if (sparkleLayer && !reduceMotion) {
-    const symbols = ['✦', '✧', '⋆', '·', '♡'];
-    for (let i = 0; i < 19; i += 1) {
-      const sparkle = document.createElement('span');
-      sparkle.className = 'sparkle';
-      sparkle.textContent = symbols[Math.floor(Math.random() * symbols.length)];
-      sparkle.style.left = `${Math.random() * 100}%`;
-      sparkle.style.top = `${Math.random() * 100}%`;
-      sparkle.style.fontSize = `${8 + Math.random() * 13}px`;
-      sparkle.style.setProperty('--duration', `${3.1 + Math.random() * 4.5}s`);
-      sparkle.style.setProperty('--delay', `${Math.random() * 5}s`);
-      sparkleLayer.appendChild(sparkle);
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '30-fabulous-12-12-2026.ics';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('Событие сохранено! 12 декабря, 11:00 — увидимся 🥂', 3800);
+    burstConfetti(0.5);
+  };
+
+  $('#heroAddToCal')?.addEventListener('click', downloadCalendar);
+  $('#ticketSaveBtn')?.addEventListener('click', downloadCalendar);
+
+  /* ── WISHLIST GUARD ──────────────────────────────────────────────── */
+  $('#wishlistLink')?.addEventListener('click', e => {
+    const href = e.currentTarget.getAttribute('href') || '';
+    if (!WISHLIST_URL || /example\.com|your-wishlist/i.test(WISHLIST_URL) || href === WISHLIST_URL) {
+      e.preventDefault();
+      showToast('Вишлист скоро появится здесь. Пока просто приходи с хорошим настроением 💝', 4200);
     }
-  }
+  });
 
-  // Pointer glow and subtle hero photo parallax on mouse/trackpad devices only.
-  const finePointer = window.matchMedia('(pointer: fine)').matches;
-  const ambient = $('#ambientGlow');
-  const heroPhoto = $('[data-parallax]');
-  if (finePointer && !reduceMotion) {
-    window.addEventListener('pointermove', event => {
-      if (ambient) {
-        ambient.style.setProperty('--glow-x', `${event.clientX - 160}px`);
-        ambient.style.setProperty('--glow-y', `${event.clientY - 160}px`);
-      }
-      const area = $('[data-parallax-area]');
-      if (area && heroPhoto) {
-        const rect = area.getBoundingClientRect();
-        if (rect.top < window.innerHeight && rect.bottom > 0) {
-          const dx = (event.clientX - (rect.left + rect.width / 2)) / rect.width;
-          const dy = (event.clientY - (rect.top + rect.height / 2)) / rect.height;
-          heroPhoto.style.transform = `rotate(${2.2 + dx * 2.0}deg) translate3d(${dx * -7}px, ${dy * -7}px, 0)`;
-        }
-      }
-    }, { passive: true });
-    const planCards = $$('.plan-card[data-tilt]');
-    planCards.forEach(card => {
-      card.addEventListener('pointermove', event => {
-        const rect = card.getBoundingClientRect();
-        const x = (event.clientX - rect.left) / rect.width - .5;
-        const y = (event.clientY - rect.top) / rect.height - .5;
-        card.style.transform = `perspective(900px) rotateX(${y * -3.5}deg) rotateY(${x * 3.5}deg)`;
+  /* ── CONFETTI ENGINE ─────────────────────────────────────────────── */
+  let confettiCanvas = null;
+  let confettiCtx = null;
+  let confettiParticles = [];
+  let confettiRaf = 0;
+  let confettiUntil = 0;
+
+  const confettiColors = ['#ff5eab', '#ff8cc6', '#ffe9c4', '#f3c98b', '#ffffff', '#c9126c', '#ffd7ea'];
+
+  const ensureConfettiCanvas = () => {
+    if (confettiCanvas) return;
+    confettiCanvas = document.createElement('canvas');
+    confettiCanvas.id = 'confettiCanvas';
+    confettiCanvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(confettiCanvas);
+    confettiCtx = confettiCanvas.getContext('2d');
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      confettiCanvas.width = window.innerWidth * dpr;
+      confettiCanvas.height = window.innerHeight * dpr;
+      confettiCanvas.style.width = `${window.innerWidth}px`;
+      confettiCanvas.style.height = `${window.innerHeight}px`;
+      confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+  };
+
+  const drawParticle = p => {
+    confettiCtx.save();
+    confettiCtx.translate(p.x, p.y);
+    confettiCtx.rotate(p.rot);
+    confettiCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
+    confettiCtx.fillStyle = p.color;
+    if (p.shape === 'circle') {
+      confettiCtx.beginPath();
+      confettiCtx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+      confettiCtx.fill();
+    } else if (p.shape === 'ribbon') {
+      confettiCtx.fillRect(-p.size / 2, -p.size / 5, p.size, p.size / 2.5);
+    } else {
+      confettiCtx.beginPath();
+      confettiCtx.moveTo(0, -p.size / 2);
+      confettiCtx.lineTo(p.size / 2, 0);
+      confettiCtx.lineTo(0, p.size / 2);
+      confettiCtx.lineTo(-p.size / 2, 0);
+      confettiCtx.closePath();
+      confettiCtx.fill();
+    }
+    confettiCtx.restore();
+  };
+
+  const confettiLoop = () => {
+    if (!confettiCtx) return;
+    confettiCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    confettiParticles = confettiParticles.filter(p => p.life > 0 && p.y < window.innerHeight + 80);
+    confettiParticles.forEach(p => {
+      p.vy += 0.12;
+      p.vx *= 0.995;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      p.life -= 0.0035;
+      drawParticle(p);
+    });
+    if (confettiParticles.length || Date.now() < confettiUntil) {
+      confettiRaf = requestAnimationFrame(confettiLoop);
+    } else {
+      confettiCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      confettiRaf = 0;
+    }
+  };
+
+  function burstConfetti(intensity = 1) {
+    if (reduceMotion) return;
+    ensureConfettiCanvas();
+    const count = Math.round(120 * intensity);
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight * 0.42;
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 11 * intensity;
+      confettiParticles.push({
+        x: cx + (Math.random() - 0.5) * 140,
+        y: cy + (Math.random() - 0.5) * 90,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 4,
+        size: 5 + Math.random() * 9,
+        color: confettiColors[(Math.random() * confettiColors.length) | 0],
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.35,
+        life: 1,
+        shape: ['circle', 'ribbon', 'diamond'][(Math.random() * 3) | 0],
       });
-      card.addEventListener('pointerleave', () => { card.style.transform = ''; });
-    });
-    $$('.magnetic').forEach(button => {
-      button.addEventListener('pointermove', event => {
-        const rect = button.getBoundingClientRect();
-        const dx = event.clientX - (rect.left + rect.width / 2);
-        const dy = event.clientY - (rect.top + rect.height / 2);
-        button.style.transform = `translate(${dx * .08}px, ${dy * .12}px)`;
-      });
-      button.addEventListener('pointerleave', () => { button.style.transform = ''; });
-    });
+    }
+    confettiUntil = Date.now() + 1200;
+    if (!confettiRaf) confettiRaf = requestAnimationFrame(confettiLoop);
   }
 
+  /* ── RSVP FORM ───────────────────────────────────────────────────── */
+  const form = $('#rsvpForm');
+  const successBlock = $('#rsvpSuccess');
+  const successMsg = $('#successCustomMsg');
+  const nameInput = $('#guestName');
+  const contactInput = $('#guestContact');
 
-  // Interactive editorial invitation: an actual page-turning magazine.
-  const magazineModal = $('#magazineModal');
-  const magazineBook = $('#magazineBook');
-  const magazineLeft = $('#magazineLeft');
-  const magazineRight = $('#magazineRight');
-  const magazinePrev = $('#magazinePrev');
-  const magazineNext = $('#magazineNext');
-  const magazineCurrent = $('#magazinePageCurrent');
-  const magazineTotal = $('#magazinePageTotal');
-  const magazineProgress = $('#magazineProgressFill');
-  const magazineDots = $('#magazineDots');
-  const magazineToast = $('#magazineToast');
-  const magazinePages = [
-    { name: 'Обложка', className: 'mag-cover', html: `
-      <div class="mag-page-content mag-page mag-cover">
-        <div class="mag-page-top"><span>30 — THE BIRTHDAY ISSUE</span><span>№ 01</span></div>
-        <div class="cover-art"><img src="girls-party.webp" alt="Именинница с подругами на розовой вечеринке" draggable="false"><span class="cover-vertical">THE GIRLS' EDITION · 2026</span><span class="cover-photo-stamp">30</span><div class="cover-title"><h2>THIRTY <em>&</em><br>FABULOUS<span style="color:#fff">.</span></h2><p>New decade. Same iconic energy.</p></div></div>
-        <div class="cover-bottom"><span>DECEMBER 12 · KALUGA</span><span>THE PARTY ISSUE ✳</span></div>
-      </div>` },
-    { name: 'Письмо', className: 'mag-letter', html: `
-      <div class="mag-page-content mag-page mag-letter">
-        <span class="letter-number" aria-hidden="true">01</span>
-        <div class="mag-page-top"><span>A NOTE FROM THE BIRTHDAY GIRL</span><span>02 / 06</span></div>
-        <div class="letter-body"><p class="mag-kicker">TO MY FAVOURITE PEOPLE</p><h2>Дорогая<br><em>подружка,</em></h2><p>Мне исполняется <strong>30</strong> — и я хочу встретить этот день красиво, вкусно, весело и рядом с любимыми девочками.</p><p>Будет немного магии, много улыбок и моменты, которые захочется сохранить на фото. Очень хочу разделить этот день с тобой.</p><div class="letter-signature">Обнимаю и жду ♥</div></div>
-        <div class="letter-stamp">LOVE<br>YOU<br>ALWAYS ✳</div>
-        <div class="mag-page-bottom"><span>MADE OF MEMORIES</span><span>02</span></div>
-      </div>` },
-    { name: 'Программа', className: 'mag-agenda', html: `
-      <div class="mag-page-content mag-page mag-agenda">
-        <div class="mag-page-top"><span>THE BIRTHDAY AGENDA</span><span>03 / 06</span></div>
-        <p class="mag-kicker">THREE ACTS. ONE ICONIC DAY.</p><h2>План на день<br><em>икс.</em></h2><p class="agenda-intro">Три повода нарядиться. Один день, который наш.</p>
-        <div class="agenda-list">
-          <div class="agenda-row"><span class="agenda-num">01</span><div><strong>Мастер-класс</strong><small>MAKE SOMETHING PRETTY</small></div><span class="agenda-symbol">✳</span></div>
-          <div class="agenda-row"><span class="agenda-num">02</span><div><strong>Фотосессия</strong><small>SERVE THE LOOK</small></div><span class="agenda-symbol">↗</span></div>
-          <div class="agenda-row"><span class="agenda-num">03</span><div><strong>Ресторан</strong><small>CHEERS, BABE!</small></div><span class="agenda-symbol">♡</span></div>
-        </div>
-        <p class="agenda-side-note">Точное расписание и адреса пришлю ближе к дате.</p>
-        <div class="mag-page-bottom"><span>NO BORING PLANS ALLOWED</span><span>03</span></div>
-      </div>` },
-    { name: 'Дата и место', className: 'mag-details', html: `
-      <div class="mag-page-content mag-page mag-details">
-        <div class="mag-page-top"><span>BLOCK YOUR CALENDAR</span><span>04 / 06</span></div>
-        <p class="mag-kicker">SAVE THE DATE</p><div class="details-day">12</div><div class="details-month">ДЕКАБРЯ</div><div class="details-year">СУББОТА · 2026</div>
-        <div class="details-rule"></div><div class="details-facts"><div><span>ГОРОД</span><strong>Калуга</strong></div><div><span>ВРЕМЯ</span><strong>11:00—17:00</strong></div></div>
-        <div class="dress-mini"><i></i><i></i><i></i> Pink, sparkle & your main-character energy.</div>
-        <button class="mag-action" type="button" data-mag-calendar><span>Добавить в календарь</span><span class="action-arrow" aria-hidden="true">↗</span></button>
-        <div class="mag-page-bottom"><span>YOUR PRESENCE IS THE PRESENT</span><span>04</span></div>
-      </div>` },
-    { name: 'Вишлист', className: 'mag-wishlist', html: `
-      <div class="mag-page-content mag-page mag-wishlist">
-        <div class="mag-page-top"><span>A LITTLE WISH LIST</span><span>05 / 06</span></div>
-        <div class="gift-orbit"><span class="gift-emoji" aria-hidden="true">🎁</span></div>
-        <p class="mag-kicker" style="text-align:center">THE BEST GIFT IS YOU</p><h2>Подарки — это<br><em>приятный бонус.</em></h2>
-        <p class="wishlist-note">Самое главное — твоё присутствие. А если захочется выбрать для меня что-то особенное, я собрала желания в одном месте.</p>
-        <a class="mag-action" href="${WISHLIST_URL}" target="_blank" rel="noopener noreferrer" data-mag-outbound="wishlist"><span>Открыть вишлист</span><span class="action-arrow" aria-hidden="true">↗</span></a>
-        <div class="mag-page-bottom"><span>JUST BE THERE ♥</span><span>05</span></div>
-      </div>` },
-    { name: 'Ответить', className: 'mag-rsvp-page', html: `
-      <div class="mag-page-content mag-page mag-rsvp-page" style="background:linear-gradient(155deg,#fff8f2,#f9d9e8)">
-        <div class="mag-page-top"><span>ONE LAST THING, BABE</span><span>06 / 06</span></div>
-        <div class="mag-rsvp-wrap"><div class="rsvp-spark" aria-hidden="true">✳</div><p class="mag-kicker">THE MOST IMPORTANT PART</p><h2>Ты<br><em>будешь?</em></h2><p>Очень надеюсь увидеть тебя рядом в этот день. Дай мне знать до 1 декабря — так я смогу всё красиво спланировать.</p><p class="rsvp-deadline">PLEASE REPLY BY DECEMBER 1</p><a class="mag-action mag-rsvp" href="${RSVP_URL}" target="_blank" rel="noopener noreferrer" data-mag-outbound="rsvp"><span>Да, я с тобой!</span><span class="action-arrow" aria-hidden="true">↗</span></a></div>
-        <div class="mag-page-bottom"><span>CAN'T WAIT TO SEE YOU</span><span>06</span></div>
-      </div>` }
-  ];
-  let magazineIndex = 0;
-  let magazineBusy = false;
-  let previousFocus = null;
-  let toastTimer = 0;
-  const magazineIsMobile = () => window.matchMedia('(max-width: 760px)').matches;
-  const insideCoverMarkup = `<div class="magazine-inside-cover"><div class="inside-top">THE BIRTHDAY ISSUE · VOL. 30</div><div class="inside-middle"><span class="inside-kicker">A LITTLE SOMETHING SPECIAL</span><h3>One day.<br><em>All the girls.</em><br>Endless memories.</h3><p>Листай — здесь собраны все детали нашего маленького большого праздника.</p></div><div class="inside-foot"><span>EST. 1996* / MAIN CHARACTER ERA</span><span>✳</span></div></div>`;
-  const pageMarkup = index => magazinePages[index].html;
-  const setMagazineSpread = index => {
-    if (!magazineLeft || !magazineRight) return;
-    magazineIndex = Math.max(0, Math.min(magazinePages.length - 1, index));
-    magazineLeft.innerHTML = magazineIndex === 0 ? insideCoverMarkup : pageMarkup(magazineIndex - 1);
-    magazineRight.innerHTML = pageMarkup(magazineIndex);
-    updateMagazineControls();
+  const validate = () => {
+    let ok = true;
+    const nameError = $('#nameError');
+    const contactError = $('#contactError');
+
+    if (!nameInput || nameInput.value.trim().length < 2) {
+      ok = false;
+      nameInput?.classList.add('is-invalid');
+      nameError?.classList.add('is-visible');
+    } else {
+      nameInput.classList.remove('is-invalid');
+      nameError?.classList.remove('is-visible');
+    }
+
+    if (!contactInput || contactInput.value.trim().length < 3) {
+      ok = false;
+      contactInput?.classList.add('is-invalid');
+      contactError?.classList.add('is-visible');
+    } else {
+      contactInput.classList.remove('is-invalid');
+      contactError?.classList.remove('is-visible');
+    }
+    return ok;
   };
-  const updateMagazineControls = () => {
-    if (magazinePrev) magazinePrev.disabled = magazineBusy || magazineIndex === 0;
-    if (magazineNext) magazineNext.disabled = magazineBusy || magazineIndex === magazinePages.length - 1;
-    if (magazineCurrent) magazineCurrent.textContent = pad(magazineIndex + 1);
-    if (magazineTotal) magazineTotal.textContent = pad(magazinePages.length);
-    if (magazineProgress) magazineProgress.style.width = `${((magazineIndex + 1) / magazinePages.length) * 100}%`;
-    $$('.magazine-dot', magazineDots || document).forEach((dot, index) => {
-      if (index === magazineIndex) dot.setAttribute('aria-current', 'page');
-      else dot.removeAttribute('aria-current');
-      dot.disabled = magazineBusy || index === magazineIndex;
+
+  [nameInput, contactInput].forEach(input => {
+    input?.addEventListener('input', () => {
+      input.classList.remove('is-invalid');
+      input.parentElement?.querySelector('.form-error')?.classList.remove('is-visible');
     });
-    if (magazineLeft) magazineLeft.setAttribute('aria-label', magazineIndex === 0 ? 'Внутренняя обложка' : `Страница ${magazineIndex}`);
-    if (magazineRight) magazineRight.setAttribute('aria-label', `Страница ${magazineIndex + 1}: ${magazinePages[magazineIndex].name}`);
-  };
-  if (magazineDots) {
-    magazinePages.forEach((page, index) => {
-      const dot = document.createElement('button');
-      dot.type = 'button'; dot.className = 'magazine-dot'; dot.setAttribute('aria-label', `Открыть: ${page.name}`);
-      dot.addEventListener('click', () => turnToMagazinePage(index));
-      magazineDots.appendChild(dot);
-    });
-  }
-  const restoreMagazineControlFocus = direction => {
-    const preferred = direction === 'next' ? magazineNext : magazinePrev;
-    const fallback = direction === 'next' ? magazinePrev : magazineNext;
-    const target = preferred && !preferred.disabled ? preferred : (fallback && !fallback.disabled ? fallback : $('.magazine-close', magazineModal));
-    if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
-  };
-  const showSiteToast = message => {
-    const toast = $('#siteToast');
-    if (!toast) { window.alert(message); return; }
-    toast.textContent = message;
-    toast.classList.add('is-visible');
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 3200);
-  };
-  const showMagazineToast = message => {
-    if (!magazineToast) return;
-    magazineToast.textContent = message;
-    magazineToast.classList.add('is-visible');
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => magazineToast.classList.remove('is-visible'), 2900);
-  };
-  const openMagazine = trigger => {
-    if (!magazineModal) return;
-    previousFocus = trigger || document.activeElement;
-    magazineModal.hidden = false;
-    document.body.classList.add('magazine-open');
-    setMagazineSpread(magazineIndex);
-    const close = $('.magazine-close', magazineModal);
-    if (close) window.setTimeout(() => close.focus(), 60);
-  };
-  const closeMagazine = () => {
-    if (!magazineModal || magazineModal.hidden) return;
-    magazineModal.hidden = true;
-    document.body.classList.remove('magazine-open');
-    magazineBusy = false;
-    if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
-  };
-  const turnToMagazinePage = targetIndex => {
-    if (!magazineModal || magazineModal.hidden || magazineBusy) return;
-    const nextIndex = Math.max(0, Math.min(magazinePages.length - 1, targetIndex));
-    if (nextIndex === magazineIndex) return;
-    const direction = nextIndex > magazineIndex ? 'next' : 'prev';
-    const currentIndex = magazineIndex;
-    const mobile = magazineIsMobile();
-    magazineBusy = true;
-    updateMagazineControls();
-    if (mobile) {
-      const oldMarkup = pageMarkup(currentIndex);
-      magazineRight.innerHTML = pageMarkup(nextIndex);
-      const flipper = document.createElement('div');
-      flipper.className = `magazine-turn-sheet is-mobile-turn turn-${direction}`;
-      flipper.innerHTML = `<div class="turn-front">${oldMarkup}</div><div class="turn-back">${pageMarkup(nextIndex)}</div>`;
-      magazineBook.appendChild(flipper);
-      requestAnimationFrame(() => requestAnimationFrame(() => flipper.classList.add('is-turning')));
-      const finish = () => {
-        if (!flipper.isConnected) return;
-        flipper.remove();
-        magazineIndex = nextIndex;
-        magazineBusy = false;
-        updateMagazineControls();
-        restoreMagazineControlFocus(direction);
-      };
-      flipper.addEventListener('transitionend', event => { if (event.target === flipper && event.propertyName === 'transform') finish(); }, { once: true });
-      window.setTimeout(finish, 1000);
+  });
+
+  form?.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validate()) {
+      showToast('Проверь, пожалуйста, имя и контакт — это важно 💌', 3200);
       return;
     }
-    if (direction === 'next') {
-      magazineLeft.innerHTML = pageMarkup(currentIndex);
-      magazineRight.innerHTML = pageMarkup(nextIndex);
-    } else {
-      magazineLeft.innerHTML = nextIndex === 0 ? insideCoverMarkup : pageMarkup(nextIndex - 1);
-      magazineRight.innerHTML = pageMarkup(nextIndex);
-    }
-    const flipper = document.createElement('div');
-    flipper.className = `magazine-turn-sheet turn-${direction}`;
-    const frontIndex = direction === 'next' ? currentIndex : currentIndex - 1;
-    const backIndex = direction === 'next' ? nextIndex : Math.max(0, currentIndex - 2);
-    const frontMarkup = frontIndex < 0 ? insideCoverMarkup : pageMarkup(frontIndex);
-    const backMarkup = direction === 'prev' && nextIndex === 0 ? insideCoverMarkup : pageMarkup(backIndex);
-    flipper.innerHTML = `<div class="turn-front">${frontMarkup}</div><div class="turn-back">${backMarkup}</div>`;
-    magazineBook.appendChild(flipper);
-    requestAnimationFrame(() => requestAnimationFrame(() => flipper.classList.add('is-turning')));
-    const finish = () => {
-      if (!flipper.isConnected) return;
-      flipper.remove();
-      magazineIndex = nextIndex;
-      magazineBusy = false;
-      // Normalize both pages to the selected spread, including direct-dot navigation.
-      setMagazineSpread(nextIndex);
-      restoreMagazineControlFocus(direction);
+
+    const data = {
+      name: nameInput.value.trim(),
+      contact: contactInput.value.trim(),
+      attendance: form.querySelector('input[name="attendance"]:checked')?.value || 'yes',
+      drink: $('#guestDrink')?.value || '',
+      note: $('#guestNote')?.value.trim() || '',
+      createdAt: new Date().toISOString(),
     };
-    flipper.addEventListener('transitionend', event => { if (event.target === flipper && event.propertyName === 'transform') finish(); }, { once: true });
-    window.setTimeout(finish, 1000);
-  };
-  $$('[data-open-magazine]').forEach(trigger => trigger.addEventListener('click', event => {
-    event.preventDefault();
-    openMagazine(trigger);
-  }));
-  $$('[data-close-magazine]').forEach(trigger => trigger.addEventListener('click', closeMagazine));
-  if (magazinePrev) magazinePrev.addEventListener('click', () => turnToMagazinePage(magazineIndex - 1));
-  if (magazineNext) magazineNext.addEventListener('click', () => turnToMagazinePage(magazineIndex + 1));
-  if (magazineModal) {
-    magazineModal.addEventListener('click', event => {
-      const outbound = event.target.closest('[data-mag-outbound]');
-      if (outbound) {
-        const kind = outbound.getAttribute('data-mag-outbound');
-        const url = kind === 'rsvp' ? RSVP_URL : WISHLIST_URL;
-        const isPlaceholder = !url || /your_username|your-wishlist|example\.com/i.test(url);
-        if (isPlaceholder) {
-          event.preventDefault();
-          showMagazineToast(kind === 'rsvp' ? 'Добавь свой Telegram в RSVP_URL в script.js.' : 'Укажи ссылку на вишлист в WISHLIST_URL в script.js.');
-        }
+
+    const submitBtn = $('#rsvpSubmitBtn');
+    const btnText = $('.btn-text', submitBtn || document);
+    const originalText = btnText?.textContent;
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (btnText) btnText.textContent = 'Отправляю...';
+
+    try {
+      if (RSVP_ENDPOINT) {
+        await fetch(RSVP_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(data),
+        });
+      } else {
+        await new Promise(resolve => window.setTimeout(resolve, 650));
       }
-      const calendar = event.target.closest('[data-mag-calendar]');
-      if (calendar && calendarButton) calendarButton.click();
-    });
-    document.addEventListener('keydown', event => {
-      if (!magazineModal || magazineModal.hidden) return;
-      if (event.key === 'Escape') { event.preventDefault(); closeMagazine(); return; }
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turnToMagazinePage(magazineIndex + 1); }
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turnToMagazinePage(magazineIndex - 1); }
-      if (event.key === 'Tab') {
-        const focusable = $$('button:not(:disabled), a[href]', magazineModal).filter(el => el.offsetParent !== null);
-        if (!focusable.length) return;
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (!magazineModal.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
-        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }
-    });
-    let touchStartX = 0, touchStartY = 0;
-    magazineBook.addEventListener('touchstart', event => {
-      if (!event.changedTouches.length) return;
-      touchStartX = event.changedTouches[0].clientX;
-      touchStartY = event.changedTouches[0].clientY;
-    }, { passive: true });
-    magazineBook.addEventListener('touchend', event => {
-      if (!event.changedTouches.length) return;
-      const dx = event.changedTouches[0].clientX - touchStartX;
-      const dy = event.changedTouches[0].clientY - touchStartY;
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) turnToMagazinePage(magazineIndex + (dx < 0 ? 1 : -1));
-    }, { passive: true });
-  }
-  // Guard unconfigured links on the main landing page too, rather than sending guests to dummy URLs.
-  if (rsvpLink) rsvpLink.addEventListener('click', event => {
-    if (/your_username/i.test(RSVP_URL)) { event.preventDefault(); showSiteToast('Добавь свой Telegram в RSVP_URL в script.js перед публикацией.'); }
-  });
-  if (wishlistLink) wishlistLink.addEventListener('click', event => {
-    if (/your-wishlist|example\.com/i.test(WISHLIST_URL)) { event.preventDefault(); showSiteToast('Укажи ссылку на вишлист в WISHLIST_URL в script.js перед публикацией.'); }
+      try { localStorage.setItem('bday30-rsvp', JSON.stringify(data)); } catch (_) { /* private mode */ }
+    } catch (_) {
+      /* Network failure shouldn't block the guest — the answer is kept locally. */
+      try { localStorage.setItem('bday30-rsvp', JSON.stringify(data)); } catch (__) { /* ignore */ }
+    }
+
+    const messages = {
+      yes: `Спасибо, ${data.name}! Ты в списке самых близких. Жду тебя 12 декабря в 11:00 — будет невероятно! 💖`,
+      part: `${data.name}, здорово, что ты будешь! Присоединяйся к нам — точное время подскажу в личных сообщениях. 💫`,
+      no: `${data.name}, очень жаль, что не получится. Спасибо, что ответила — обнимаю крепко и обязательно увидимся позже! 💔`,
+    };
+
+    if (successMsg) successMsg.textContent = messages[data.attendance] || messages.yes;
+    form.hidden = true;
+    if (successBlock) {
+      successBlock.hidden = false;
+      successBlock.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+    }
+    if (submitBtn) submitBtn.disabled = false;
+    if (btnText && originalText) btnText.textContent = originalText;
+
+    burstConfetti(1.15);
+    showToast('Ответ отправлен! Ты — лучшая 💌', 3200);
   });
 
+  $('#confettiAgainBtn')?.addEventListener('click', () => burstConfetti(1));
+  $('#resetFormBtn')?.addEventListener('click', () => {
+    if (successBlock) successBlock.hidden = true;
+    if (form) form.hidden = false;
+    form?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+  });
+
+  /* ── RESTORE SAVED RSVP ──────────────────────────────────────────── */
+  try {
+    const saved = JSON.parse(localStorage.getItem('bday30-rsvp') || 'null');
+    if (saved && nameInput && contactInput) {
+      nameInput.value = saved.name || '';
+      contactInput.value = saved.contact || '';
+      const radio = form?.querySelector(`input[name="attendance"][value="${saved.attendance}"]`);
+      if (radio) radio.checked = true;
+      if (saved.drink) {
+        const select = $('#guestDrink');
+        if (select) select.value = saved.drink;
+      }
+      if (saved.note) {
+        const note = $('#guestNote');
+        if (note) note.value = saved.note;
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  /* ── AMBIENT AUDIO (WebAudio, no assets) ─────────────────────────── */
+  const audioBtn = $('#audioToggle');
+  let audioCtx = null;
+  let audioMaster = null;
+  let audioTimer = 0;
+  let audioOn = false;
+  let step = 0;
+
+  const NOTES = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 783.99, 659.25, 587.33, 523.25];
+
+  const playChime = () => {
+    if (!audioCtx || !audioMaster) return;
+    const t = audioCtx.currentTime;
+    const freq = NOTES[step % NOTES.length];
+    step++;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2600, t);
+
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.075, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioMaster);
+
+    osc.start(t);
+    osc.stop(t + 2.7);
+
+    // soft shimmer overtone
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(freq * 2, t);
+    gain2.gain.setValueAtTime(0.0001, t);
+    gain2.gain.exponentialRampToValueAtTime(0.022, t + 0.02);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+    osc2.connect(gain2);
+    gain2.connect(audioMaster);
+    osc2.start(t);
+    osc2.stop(t + 1.7);
+  };
+
+  const startAudio = () => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { showToast('Твой браузер не поддерживает звук, но праздник всё равно будет 🎉'); return; }
+    if (!audioCtx) {
+      audioCtx = new AC();
+      audioMaster = audioCtx.createGain();
+      audioMaster.gain.value = 0.6;
+      audioMaster.connect(audioCtx.destination);
+    }
+    audioCtx.resume();
+    audioOn = true;
+    audioBtn?.classList.add('is-playing');
+    audioBtn?.setAttribute('aria-label', 'Выключить праздничные звуки');
+    const text = $('.audio-text', audioBtn || document);
+    if (text) text.textContent = 'Играет';
+    playChime();
+    audioTimer = window.setInterval(playChime, 1500);
+    showToast('Атмосфера включена ✨ Приятного просмотра!', 2600);
+  };
+
+  const stopAudio = () => {
+    audioOn = false;
+    window.clearInterval(audioTimer);
+    audioBtn?.classList.remove('is-playing');
+    audioBtn?.setAttribute('aria-label', 'Включить праздничные звуки');
+    const text = $('.audio-text', audioBtn || document);
+    if (text) text.textContent = 'Звук';
+    if (audioCtx) audioCtx.suspend();
+  };
+
+  audioBtn?.addEventListener('click', () => {
+    if (audioOn) stopAudio(); else startAudio();
+  });
+
+  /* ── DEADLINE NOTICE (after RSVP deadline) ───────────────────────── */
+  if (Date.now() > RSVP_DEADLINE.getTime()) {
+    const sub = $('.rsvp-sub');
+    if (sub) {
+      sub.innerHTML = 'Форма всё ещё открыта — но <strong>1 декабря</strong> уже прошло. Напиши мне лично, если ещё не ответила: постараюсь всё успеть! 💖';
+    }
+  }
+
+  /* ── SMOOTH ANCHOR OFFSET FIX ────────────────────────────────────── */
+  $$('a[href^="#"]').forEach(link => {
+    link.addEventListener('click', e => {
+      const id = link.getAttribute('href');
+      if (!id || id === '#') return;
+      const target = document.querySelector(id);
+      if (!target) return;
+      e.preventDefault();
+      const top = target.getBoundingClientRect().top + window.scrollY - (window.innerWidth > 1024 ? 88 : 70);
+      window.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
+      history.replaceState(null, '', id);
+    });
+  });
+
+  /* ── BACKGROUND PARTICLES / BOKEH ────────────────────────────────── */
+  const canvas = $('#bgCanvas');
+  if (canvas && !reduceMotion) {
+    const ctx = canvas.getContext('2d');
+    let w = 0, h = 0, dpr = 1;
+    let particles = [];
+    let mouseX = 0, mouseY = 0;
+    let targetX = 0, targetY = 0;
+
+    const buildParticles = () => {
+      const count = Math.min(110, Math.max(38, Math.floor((w * h) / 22000)));
+      particles = Array.from({ length: count }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: Math.random() * 1.8 + 0.5,
+        a: Math.random() * 0.55 + 0.15,
+        vy: -(Math.random() * 0.22 + 0.05),
+        vx: (Math.random() - 0.5) * 0.14,
+        tw: Math.random() * Math.PI * 2,
+        tws: Math.random() * 0.02 + 0.006,
+        depth: Math.random() * 0.8 + 0.2,
+        hue: Math.random() > 0.72 ? 'gold' : 'pink',
+      }));
+    };
+
+    const resizeCanvas = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = window.innerWidth;
+      h = window.innerHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildParticles();
+    };
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    window.addEventListener('mousemove', e => {
+      targetX = (e.clientX / window.innerWidth - 0.5) * 26;
+      targetY = (e.clientY / window.innerHeight - 0.5) * 26;
+    }, { passive: true });
+
+    const draw = () => {
+      mouseX += (targetX - mouseX) * 0.05;
+      mouseY += (targetY - mouseY) * 0.05;
+      ctx.clearRect(0, 0, w, h);
+
+      particles.forEach(p => {
+        p.y += p.vy;
+        p.x += p.vx;
+        p.tw += p.tws;
+
+        if (p.y < -12) { p.y = h + 10; p.x = Math.random() * w; }
+        if (p.x < -12) p.x = w + 10;
+        if (p.x > w + 12) p.x = -10;
+
+        const alpha = p.a * (0.55 + Math.sin(p.tw) * 0.45);
+        const px = p.x + mouseX * p.depth;
+        const py = p.y + mouseY * p.depth;
+        const color = p.hue === 'gold' ? `rgba(255, 233, 196, ${alpha})` : `rgba(255, 140, 198, ${alpha})`;
+
+        ctx.beginPath();
+        ctx.arc(px, py, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.shadowBlur = p.r * 6;
+        ctx.shadowColor = color;
+        ctx.fill();
+      });
+      ctx.shadowBlur = 0;
+      requestAnimationFrame(draw);
+    };
+    requestAnimationFrame(draw);
+  }
+
+  /* ── HERO ENTRANCE ───────────────────────────────────────────────── */
+  if (!reduceMotion) {
+    document.body.classList.add('is-ready');
+  }
 })();
