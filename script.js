@@ -1,223 +1,34 @@
 (() => {
   'use strict';
 
-  // PERSONALIZATION: replace these two links before publishing.
+  // PERSONALIZATION: replace these links before publishing.
   const RSVP_URL = 'https://t.me/your_username';
   const WISHLIST_URL = 'https://example.com/your-wishlist';
   const EVENT_START = new Date('2026-12-12T11:00:00+03:00');
   const EVENT_END = new Date('2026-12-12T17:00:00+03:00');
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-
-  const rsvpLink = $('#rsvpLink');
-  const wishlistLink = $('#wishlistLink');
-  if (rsvpLink) rsvpLink.href = RSVP_URL;
-  if (wishlistLink) wishlistLink.href = WISHLIST_URL;
-
-  // Scroll reveals: fail open so the page remains readable if the API is unavailable.
-  if ('IntersectionObserver' in window && !reduceMotion) {
-    const revealObserver = new IntersectionObserver((entries, observer) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.14, rootMargin: '0px 0px -30px 0px' });
-    $$('.reveal').forEach(el => revealObserver.observe(el));
-  } else {
-    $$('.reveal').forEach(el => el.classList.add('is-visible'));
-  }
-
-  // Scroll progress bar.
-  const progress = $('#scrollProgress');
-  let scrollScheduled = false;
-  const updateScrollProgress = () => {
-    if (!progress) return;
-    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    const ratio = maxScroll > 0 ? Math.min(1, Math.max(0, window.scrollY / maxScroll)) : 0;
-    progress.style.width = `${ratio * 100}%`;
-    scrollScheduled = false;
-  };
-  window.addEventListener('scroll', () => {
-    if (!scrollScheduled) {
-      window.requestAnimationFrame(updateScrollProgress);
-      scrollScheduled = true;
-    }
-  }, { passive: true });
-  updateScrollProgress();
-
-  // Countdown with a graceful post-event state.
   const pad = value => String(value).padStart(2, '0');
-  const updateCountdown = () => {
-    const note = $('#countdownNote');
-    const now = Date.now();
-    if (now >= EVENT_END.getTime()) {
-      ['days', 'hours', 'minutes', 'seconds'].forEach(id => {
-        const target = document.getElementById(id);
-        if (target) target.textContent = '00';
-      });
-      if (note) note.textContent = 'Это было прекрасно. Спасибо, что была частью этого дня! ♥';
-      return;
-    }
-    if (now >= EVENT_START.getTime()) {
-      ['days', 'hours', 'minutes', 'seconds'].forEach(id => {
-        const target = document.getElementById(id);
-        if (target) target.textContent = '00';
-      });
-      if (note) note.textContent = 'Сегодня сияем на максимум! ✨ До встречи!';
-      return;
-    }
-    const diff = EVENT_START.getTime() - now;
-    const values = {
-      days: Math.floor(diff / 86400000),
-      hours: Math.floor((diff % 86400000) / 3600000),
-      minutes: Math.floor((diff % 3600000) / 60000),
-      seconds: Math.floor((diff % 60000) / 1000)
-    };
-    Object.entries(values).forEach(([id, value]) => {
-      const target = document.getElementById(id);
-      if (target) target.textContent = pad(value);
-    });
-  };
-  updateCountdown();
-  window.setInterval(updateCountdown, 1000);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Calendar invite download. Uses the event's Kaluga/Moscow local time (UTC+3).
-  const escapeICS = value => String(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
-    .replace(/,/g, '\\,')
-    .replace(/;/g, '\\;');
-  const formatICS = date => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-    }).formatToParts(date).reduce((result, part) => (result[part.type] = part.value, result), {});
-    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
-  };
-  const calendarButton = $('#calendarButton');
-  if (calendarButton) {
-    calendarButton.addEventListener('click', () => {
-      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-      const ics = [
-        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//30 and Fabulous//Birthday invitation//RU',
-        'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
-        `UID:birthday-30-fabulous-${formatICS(EVENT_START)}@invite`,
-        `DTSTAMP:${stamp}`, `DTSTART;TZID=Europe/Moscow:${formatICS(EVENT_START)}`,
-        `DTEND;TZID=Europe/Moscow:${formatICS(EVENT_END)}`,
-        `SUMMARY:${escapeICS('30 & fabulous — день рождения')}`,
-        `LOCATION:${escapeICS('Калуга')}`,
-        `DESCRIPTION:${escapeICS('День рождения: мастер-класс, фотосессия и ресторан. Точное расписание и адреса будут сообщены ближе к дате.')}`,
-        'END:VEVENT', 'END:VCALENDAR', ''
-      ].join('\r\n');
-      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '30-and-fabulous-12-12-2026.ics';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      const note = $('#calendarNote');
-      if (note) note.textContent = 'Готово — открой файл и сохрани событие в календаре ♥';
-    });
-  }
-
-  // Active navigation marker, helpful on long scrolls.
-  if ('IntersectionObserver' in window) {
-    const sectionLinks = $$('.main-nav a');
-    const sectionObserver = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          sectionLinks.forEach(link => {
-            const active = link.getAttribute('href') === `#${entry.target.id}`;
-            link.classList.toggle('active', active);
-            if (active) link.setAttribute('aria-current', 'location');
-            else link.removeAttribute('aria-current');
-          });
-        }
-      });
-    }, { rootMargin: '-35% 0px -55% 0px' });
-    ['invite', 'plan', 'details', 'rsvp'].forEach(id => {
-      const section = document.getElementById(id);
-      if (section) sectionObserver.observe(section);
-    });
-  }
-
-  // Tiny sparkles, restricted to the background and disabled for reduced-motion users.
-  const sparkleLayer = $('#sparkleLayer');
-  if (sparkleLayer && !reduceMotion) {
-    const symbols = ['✦', '✧', '⋆', '·', '♡'];
-    for (let i = 0; i < 19; i += 1) {
-      const sparkle = document.createElement('span');
-      sparkle.className = 'sparkle';
-      sparkle.textContent = symbols[Math.floor(Math.random() * symbols.length)];
-      sparkle.style.left = `${Math.random() * 100}%`;
-      sparkle.style.top = `${Math.random() * 100}%`;
-      sparkle.style.fontSize = `${8 + Math.random() * 13}px`;
-      sparkle.style.setProperty('--duration', `${3.1 + Math.random() * 4.5}s`);
-      sparkle.style.setProperty('--delay', `${Math.random() * 5}s`);
-      sparkleLayer.appendChild(sparkle);
-    }
-  }
-
-  // Pointer glow and subtle hero photo parallax on mouse/trackpad devices only.
-  const finePointer = window.matchMedia('(pointer: fine)').matches;
-  const ambient = $('#ambientGlow');
-  const heroPhoto = $('[data-parallax]');
-  if (finePointer && !reduceMotion) {
-    window.addEventListener('pointermove', event => {
-      if (ambient) {
-        ambient.style.setProperty('--glow-x', `${event.clientX - 160}px`);
-        ambient.style.setProperty('--glow-y', `${event.clientY - 160}px`);
-      }
-      const area = $('[data-parallax-area]');
-      if (area && heroPhoto) {
-        const rect = area.getBoundingClientRect();
-        if (rect.top < window.innerHeight && rect.bottom > 0) {
-          const dx = (event.clientX - (rect.left + rect.width / 2)) / rect.width;
-          const dy = (event.clientY - (rect.top + rect.height / 2)) / rect.height;
-          heroPhoto.style.transform = `rotate(${2.2 + dx * 2.0}deg) translate3d(${dx * -7}px, ${dy * -7}px, 0)`;
-        }
-      }
-    }, { passive: true });
-    const planCards = $$('.plan-card[data-tilt]');
-    planCards.forEach(card => {
-      card.addEventListener('pointermove', event => {
-        const rect = card.getBoundingClientRect();
-        const x = (event.clientX - rect.left) / rect.width - .5;
-        const y = (event.clientY - rect.top) / rect.height - .5;
-        card.style.transform = `perspective(900px) rotateX(${y * -3.5}deg) rotateY(${x * 3.5}deg)`;
-      });
-      card.addEventListener('pointerleave', () => { card.style.transform = ''; });
-    });
-    $$('.magnetic').forEach(button => {
-      button.addEventListener('pointermove', event => {
-        const rect = button.getBoundingClientRect();
-        const dx = event.clientX - (rect.left + rect.width / 2);
-        const dy = event.clientY - (rect.top + rect.height / 2);
-        button.style.transform = `translate(${dx * .08}px, ${dy * .12}px)`;
-      });
-      button.addEventListener('pointerleave', () => { button.style.transform = ''; });
-    });
-  }
-
-
-  // Interactive editorial invitation: an actual page-turning magazine.
   const magazineModal = $('#magazineModal');
   const magazineBook = $('#magazineBook');
   const magazineLeft = $('#magazineLeft');
   const magazineRight = $('#magazineRight');
   const magazinePrev = $('#magazinePrev');
   const magazineNext = $('#magazineNext');
+  const magazineHome = $('#magazineHome');
   const magazineCurrent = $('#magazinePageCurrent');
   const magazineTotal = $('#magazinePageTotal');
   const magazineProgress = $('#magazineProgressFill');
   const magazineDots = $('#magazineDots');
   const magazineToast = $('#magazineToast');
+  let magazineIndex = 0;
+  let magazineBusy = false;
+  let toastTimer = 0;
+  let pageGesture = null;
+  const magazineIsMobile = () => window.matchMedia('(max-width: 760px)').matches;
+
   const magazinePages = [
     { name: 'Обложка', className: 'mag-cover', html: `
       <div class="mag-page-content mag-page mag-cover">
@@ -270,23 +81,21 @@
         <div class="mag-page-bottom"><span>CAN'T WAIT TO SEE YOU</span><span>06</span></div>
       </div>` }
   ];
-  let magazineIndex = 0;
-  let magazineBusy = false;
-  let previousFocus = null;
-  let toastTimer = 0;
-  const magazineIsMobile = () => window.matchMedia('(max-width: 760px)').matches;
   const insideCoverMarkup = `<div class="magazine-inside-cover"><div class="inside-top">THE BIRTHDAY ISSUE · VOL. 30</div><div class="inside-middle"><span class="inside-kicker">A LITTLE SOMETHING SPECIAL</span><h3>One day.<br><em>All the girls.</em><br>Endless memories.</h3><p>Листай — здесь собраны все детали нашего маленького большого праздника.</p></div><div class="inside-foot"><span>EST. 1996* / MAIN CHARACTER ERA</span><span>✳</span></div></div>`;
   const pageMarkup = index => magazinePages[index].html;
-  const setMagazineSpread = index => {
-    if (!magazineLeft || !magazineRight) return;
-    magazineIndex = Math.max(0, Math.min(magazinePages.length - 1, index));
-    magazineLeft.innerHTML = magazineIndex === 0 ? insideCoverMarkup : pageMarkup(magazineIndex - 1);
-    magazineRight.innerHTML = pageMarkup(magazineIndex);
-    updateMagazineControls();
+
+  const showToast = message => {
+    if (!magazineToast) return;
+    magazineToast.textContent = message;
+    magazineToast.classList.add('is-visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => magazineToast.classList.remove('is-visible'), 3200);
   };
-  const updateMagazineControls = () => {
+
+  const updateControls = () => {
     if (magazinePrev) magazinePrev.disabled = magazineBusy || magazineIndex === 0;
     if (magazineNext) magazineNext.disabled = magazineBusy || magazineIndex === magazinePages.length - 1;
+    if (magazineHome) magazineHome.disabled = magazineBusy;
     if (magazineCurrent) magazineCurrent.textContent = pad(magazineIndex + 1);
     if (magazineTotal) magazineTotal.textContent = pad(magazinePages.length);
     if (magazineProgress) magazineProgress.style.width = `${((magazineIndex + 1) / magazinePages.length) * 100}%`;
@@ -298,115 +107,240 @@
     if (magazineLeft) magazineLeft.setAttribute('aria-label', magazineIndex === 0 ? 'Внутренняя обложка' : `Страница ${magazineIndex}`);
     if (magazineRight) magazineRight.setAttribute('aria-label', `Страница ${magazineIndex + 1}: ${magazinePages[magazineIndex].name}`);
   };
-  if (magazineDots) {
-    magazinePages.forEach((page, index) => {
-      const dot = document.createElement('button');
-      dot.type = 'button'; dot.className = 'magazine-dot'; dot.setAttribute('aria-label', `Открыть: ${page.name}`);
-      dot.addEventListener('click', () => turnToMagazinePage(index));
-      magazineDots.appendChild(dot);
-    });
-  }
-  const restoreMagazineControlFocus = direction => {
-    const preferred = direction === 'next' ? magazineNext : magazinePrev;
-    const fallback = direction === 'next' ? magazinePrev : magazineNext;
-    const target = preferred && !preferred.disabled ? preferred : (fallback && !fallback.disabled ? fallback : $('.magazine-close', magazineModal));
-    if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
+
+  const leftMarkupForIndex = index => index <= 1 ? insideCoverMarkup : pageMarkup(index - 1);
+
+  const setSpread = index => {
+    if (!magazineLeft || !magazineRight) return;
+    magazineIndex = Math.max(0, Math.min(magazinePages.length - 1, index));
+    magazineLeft.innerHTML = leftMarkupForIndex(magazineIndex);
+    magazineRight.innerHTML = pageMarkup(magazineIndex);
+    updateControls();
   };
-  const showSiteToast = message => {
-    const toast = $('#siteToast');
-    if (!toast) { window.alert(message); return; }
-    toast.textContent = message;
-    toast.classList.add('is-visible');
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 3200);
+
+  const easeFlip = t => 0.5 - Math.cos(Math.PI * t) / 2;
+  const removeTurnEffects = () => {
+    magazineBook?.classList.remove('is-flipping', 'is-flipping-next', 'is-flipping-prev');
+    magazineBook?.style.removeProperty('--book-lift');
+    magazineBook?.style.removeProperty('--turn-ambient');
+    magazineModal?.style.removeProperty('--turn-light-x');
   };
-  const showMagazineToast = message => {
-    if (!magazineToast) return;
-    magazineToast.textContent = message;
-    magazineToast.classList.add('is-visible');
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => magazineToast.classList.remove('is-visible'), 2900);
+
+  const paintTurn = (flipper, t, direction) => {
+    const progress = Math.max(0, Math.min(1, t));
+    const bend = Math.sin(Math.PI * progress);
+    const sign = direction === 'next' ? -1 : 1;
+    const angle = sign * 180 * progress;
+    // A tiny diagonal twist and Z-lift make the page feel flexible instead of a flat card.
+    const twist = sign * 1.35 * bend;
+    const lift = 22 * bend;
+    const squeeze = 1 - 0.028 * bend;
+    flipper.style.setProperty('--flip-progress', progress.toFixed(4));
+    flipper.style.setProperty('--flip-light', bend.toFixed(4));
+    flipper.style.setProperty('--flip-gloss-pos', `${(progress * 100).toFixed(2)}%`);
+    flipper.style.transform = `rotateY(${angle.toFixed(3)}deg) rotateZ(${twist.toFixed(3)}deg) translateZ(${lift.toFixed(2)}px) scaleX(${squeeze.toFixed(4)})`;
+    const side = direction === 'next' ? -1 : 1;
+    flipper.style.boxShadow = `${side * (8 + 10 * bend).toFixed(1)}px ${5 + 4 * bend}px ${14 + 34 * bend}px rgba(13, 0, 10, ${(0.1 + 0.25 * bend).toFixed(3)})`;
+    magazineBook?.style.setProperty('--book-lift', `${(-8 * bend).toFixed(2)}px`);
+    magazineBook?.style.setProperty('--turn-ambient', (0.12 + 0.52 * bend).toFixed(3));
+    magazineModal?.style.setProperty('--turn-light-x', `${(50 + sign * (progress - 0.5) * 32).toFixed(2)}%`);
   };
-  const openMagazine = trigger => {
-    if (!magazineModal) return;
-    previousFocus = trigger || document.activeElement;
-    magazineModal.hidden = false;
-    document.body.classList.add('magazine-open');
-    setMagazineSpread(magazineIndex);
-    const close = $('.magazine-close', magazineModal);
-    if (close) window.setTimeout(() => close.focus(), 60);
-  };
-  const closeMagazine = () => {
-    if (!magazineModal || magazineModal.hidden) return;
-    magazineModal.hidden = true;
-    document.body.classList.remove('magazine-open');
-    magazineBusy = false;
-    if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
-  };
-  const turnToMagazinePage = targetIndex => {
-    if (!magazineModal || magazineModal.hidden || magazineBusy) return;
+
+  const beginTurn = targetIndex => {
+    if (!magazineModal || magazineBusy) return null;
     const nextIndex = Math.max(0, Math.min(magazinePages.length - 1, targetIndex));
-    if (nextIndex === magazineIndex) return;
+    if (nextIndex === magazineIndex) return null;
     const direction = nextIndex > magazineIndex ? 'next' : 'prev';
     const currentIndex = magazineIndex;
     const mobile = magazineIsMobile();
     magazineBusy = true;
-    updateMagazineControls();
+    magazineBook?.classList.remove('magazine-hovering');
+    magazineBook?.style.setProperty('--book-tilt-x', '0deg');
+    magazineBook?.style.setProperty('--book-tilt-y', '0deg');
+    magazineBook?.classList.add('is-flipping', `is-flipping-${direction}`);
+    updateControls();
+
+    let frontMarkup;
+    let backMarkup;
+    let sheetClass = `magazine-turn-sheet turn-${direction}`;
+
     if (mobile) {
-      const oldMarkup = pageMarkup(currentIndex);
+      frontMarkup = pageMarkup(currentIndex);
+      backMarkup = pageMarkup(nextIndex);
       magazineRight.innerHTML = pageMarkup(nextIndex);
-      const flipper = document.createElement('div');
-      flipper.className = `magazine-turn-sheet is-mobile-turn turn-${direction}`;
-      flipper.innerHTML = `<div class="turn-front">${oldMarkup}</div><div class="turn-back">${pageMarkup(nextIndex)}</div>`;
-      magazineBook.appendChild(flipper);
-      requestAnimationFrame(() => requestAnimationFrame(() => flipper.classList.add('is-turning')));
-      const finish = () => {
-        if (!flipper.isConnected) return;
-        flipper.remove();
-        magazineIndex = nextIndex;
-        magazineBusy = false;
-        updateMagazineControls();
-        restoreMagazineControlFocus(direction);
-      };
-      flipper.addEventListener('transitionend', event => { if (event.target === flipper && event.propertyName === 'transform') finish(); }, { once: true });
-      window.setTimeout(finish, 1000);
-      return;
-    }
-    if (direction === 'next') {
-      magazineLeft.innerHTML = pageMarkup(currentIndex);
+      sheetClass += ' is-mobile-turn';
+    } else if (direction === 'next') {
+      magazineLeft.innerHTML = leftMarkupForIndex(currentIndex);
       magazineRight.innerHTML = pageMarkup(nextIndex);
+      frontMarkup = pageMarkup(currentIndex);
+      backMarkup = leftMarkupForIndex(nextIndex);
     } else {
-      magazineLeft.innerHTML = nextIndex === 0 ? insideCoverMarkup : pageMarkup(nextIndex - 1);
+      magazineLeft.innerHTML = leftMarkupForIndex(nextIndex);
       magazineRight.innerHTML = pageMarkup(nextIndex);
+      frontMarkup = leftMarkupForIndex(currentIndex);
+      backMarkup = pageMarkup(nextIndex);
     }
+
     const flipper = document.createElement('div');
-    flipper.className = `magazine-turn-sheet turn-${direction}`;
-    const frontIndex = direction === 'next' ? currentIndex : currentIndex - 1;
-    const backIndex = direction === 'next' ? nextIndex : Math.max(0, currentIndex - 2);
-    const frontMarkup = frontIndex < 0 ? insideCoverMarkup : pageMarkup(frontIndex);
-    const backMarkup = direction === 'prev' && nextIndex === 0 ? insideCoverMarkup : pageMarkup(backIndex);
+    flipper.className = sheetClass;
+    flipper.setAttribute('aria-hidden', 'true');
     flipper.innerHTML = `<div class="turn-front">${frontMarkup}</div><div class="turn-back">${backMarkup}</div>`;
     magazineBook.appendChild(flipper);
-    requestAnimationFrame(() => requestAnimationFrame(() => flipper.classList.add('is-turning')));
-    const finish = () => {
-      if (!flipper.isConnected) return;
-      flipper.remove();
-      magazineIndex = nextIndex;
-      magazineBusy = false;
-      // Normalize both pages to the selected spread, including direct-dot navigation.
-      setMagazineSpread(nextIndex);
-      restoreMagazineControlFocus(direction);
+    paintTurn(flipper, 0, direction);
+
+    const handle = {
+      flipper, currentIndex, nextIndex, direction, mobile,
+      progress: 0, frameId: 0, finished: false,
+      setProgress(progress) {
+        this.progress = Math.max(0, Math.min(1, progress));
+        paintTurn(flipper, this.progress, direction);
+      },
+      finish(commit) {
+        if (this.finished) return;
+        this.finished = true;
+        if (this.frameId) cancelAnimationFrame(this.frameId);
+        flipper.remove();
+        setSpread(commit ? nextIndex : currentIndex);
+        magazineBusy = false;
+        removeTurnEffects();
+        updateControls();
+      }
     };
-    flipper.addEventListener('transitionend', event => { if (event.target === flipper && event.propertyName === 'transform') finish(); }, { once: true });
-    window.setTimeout(finish, 1000);
+    return handle;
   };
-  $$('[data-open-magazine]').forEach(trigger => trigger.addEventListener('click', event => {
-    event.preventDefault();
-    openMagazine(trigger);
-  }));
-  $$('[data-close-magazine]').forEach(trigger => trigger.addEventListener('click', closeMagazine));
-  if (magazinePrev) magazinePrev.addEventListener('click', () => turnToMagazinePage(magazineIndex - 1));
-  if (magazineNext) magazineNext.addEventListener('click', () => turnToMagazinePage(magazineIndex + 1));
+
+  const animateTurn = (handle, from, to, duration) => {
+    if (!handle || handle.finished) return;
+    const start = performance.now();
+    const distance = to - from;
+    const frame = now => {
+      if (handle.finished || !handle.flipper.isConnected) return;
+      const t = Math.min(1, (now - start) / Math.max(1, duration));
+      handle.setProgress(from + distance * easeFlip(t));
+      if (t < 1) handle.frameId = requestAnimationFrame(frame);
+      else handle.finish(to > from && to > 0.99);
+    };
+    handle.frameId = requestAnimationFrame(frame);
+  };
+
+  const turnToPage = targetIndex => {
+    if (magazineBusy) return;
+    const nextIndex = Math.max(0, Math.min(magazinePages.length - 1, targetIndex));
+    if (nextIndex === magazineIndex) return;
+    if (reduceMotion) {
+      setSpread(nextIndex);
+      return;
+    }
+    const handle = beginTurn(nextIndex);
+    if (handle) animateTurn(handle, 0, 1, handle.mobile ? 900 : 1120);
+  };
+
+  const startPageGesture = event => {
+    if (magazineBusy || reduceMotion || event.button > 0 || event.target.closest('button, a')) return;
+    const mobile = magazineIsMobile();
+    const page = event.target.closest('.magazine-page-right, .magazine-page-left');
+    if (!page) return;
+    const rect = page.getBoundingClientRect();
+    let targetIndex = null;
+    if (mobile) {
+      if (!page.classList.contains('magazine-page-right')) return;
+    } else {
+      const x = event.clientX - rect.left;
+      if (page.classList.contains('magazine-page-right') && x >= rect.width * 0.86 && magazineIndex < magazinePages.length - 1) targetIndex = magazineIndex + 1;
+      else if (page.classList.contains('magazine-page-left') && x <= rect.width * 0.14 && magazineIndex > 0) targetIndex = magazineIndex - 1;
+      else return;
+    }
+    pageGesture = {
+      pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      lastX: event.clientX, lastAt: performance.now(), direction: null,
+      targetIndex, mobile, pageWidth: rect.width, progress: 0, handle: null
+    };
+  };
+
+  const movePageGesture = event => {
+    const gesture = pageGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    const now = performance.now();
+    gesture.velocity = Math.abs(event.clientX - gesture.lastX) / Math.max(1, now - gesture.lastAt);
+    gesture.lastX = event.clientX;
+    gesture.lastAt = now;
+    if (!gesture.handle) {
+      if (Math.abs(dx) < 9 || Math.abs(dx) < Math.abs(dy) * 1.18) return;
+      const targetIndex = gesture.mobile ? magazineIndex + (dx < 0 ? 1 : -1) : gesture.targetIndex;
+      if (targetIndex < 0 || targetIndex >= magazinePages.length) { pageGesture = null; return; }
+      gesture.direction = dx < 0 ? 'next' : 'prev';
+      gesture.handle = beginTurn(targetIndex);
+      if (!gesture.handle) { pageGesture = null; return; }
+      try { magazineBook.setPointerCapture(event.pointerId); } catch (_) {}
+    }
+    if (event.cancelable) event.preventDefault();
+    const width = Math.max(100, gesture.pageWidth);
+    const progress = Math.min(0.985, Math.abs(dx) / width);
+    gesture.progress = progress;
+    gesture.handle.setProgress(progress);
+  };
+
+  const endPageGesture = (event, cancelled = false) => {
+    const gesture = pageGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    pageGesture = null;
+    if (!gesture.handle) return;
+    const commit = !cancelled && (gesture.progress > 0.24 || (gesture.velocity || 0) > 0.58);
+    const handle = gesture.handle;
+    if (commit) animateTurn(handle, gesture.progress, 1, Math.max(190, (1 - gesture.progress) * (handle.mobile ? 760 : 860)));
+    else animateTurn(handle, gesture.progress, 0, Math.max(150, gesture.progress * 410));
+  };
+
+  const returnToCover = () => {
+    if (magazineBusy || magazineIndex === 0) return;
+    turnToPage(0);
+  };
+
+  const escapeICS = value => String(value).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+  const formatICS = date => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).formatToParts(date).reduce((result, part) => (result[part.type] = part.value, result), {});
+    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
+  };
+  const downloadCalendar = () => {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//30 and Fabulous//Birthday invitation//RU',
+      'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VTIMEZONE', 'TZID:Europe/Moscow',
+      'X-LIC-LOCATION:Europe/Moscow', 'BEGIN:STANDARD', 'TZOFFSETFROM:+0300', 'TZOFFSETTO:+0300',
+      'TZNAME:MSK', 'DTSTART:19700101T000000', 'END:STANDARD', 'END:VTIMEZONE', 'BEGIN:VEVENT',
+      `UID:birthday-30-fabulous-${formatICS(EVENT_START)}@invite`, `DTSTAMP:${stamp}`,
+      `DTSTART;TZID=Europe/Moscow:${formatICS(EVENT_START)}`, `DTEND;TZID=Europe/Moscow:${formatICS(EVENT_END)}`,
+      `SUMMARY:${escapeICS('30 & fabulous — день рождения')}`, `LOCATION:${escapeICS('Калуга')}`,
+      `DESCRIPTION:${escapeICS('День рождения: мастер-класс, фотосессия и ресторан. Точное расписание и адреса будут сообщены ближе к дате.')}`,
+      'END:VEVENT', 'END:VCALENDAR', ''
+    ].join('\r\n');
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '30-and-fabulous-12-12-2026.ics';
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    showToast('Календарь готов — сохрани событие на 12 декабря ♥');
+  };
+
+  if (magazineDots) {
+    magazinePages.forEach((page, index) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'magazine-dot';
+      dot.setAttribute('aria-label', `Открыть: ${page.name}`);
+      dot.addEventListener('click', () => turnToPage(index));
+      magazineDots.appendChild(dot);
+    });
+  }
+  magazinePrev?.addEventListener('click', () => turnToPage(magazineIndex - 1));
+  magazineNext?.addEventListener('click', () => turnToPage(magazineIndex + 1));
+  magazineHome?.addEventListener('click', returnToCover);
+
   if (magazineModal) {
     magazineModal.addEventListener('click', event => {
       const outbound = event.target.closest('[data-mag-outbound]');
@@ -416,45 +350,52 @@
         const isPlaceholder = !url || /your_username|your-wishlist|example\.com/i.test(url);
         if (isPlaceholder) {
           event.preventDefault();
-          showMagazineToast(kind === 'rsvp' ? 'Добавь свой Telegram в RSVP_URL в script.js.' : 'Укажи ссылку на вишлист в WISHLIST_URL в script.js.');
+          showToast(kind === 'rsvp' ? 'Перед публикацией укажи Telegram в RSVP_URL в script.js.' : 'Перед публикацией укажи ссылку на вишлист в WISHLIST_URL.');
         }
       }
-      const calendar = event.target.closest('[data-mag-calendar]');
-      if (calendar && calendarButton) calendarButton.click();
-    });
-    document.addEventListener('keydown', event => {
-      if (!magazineModal || magazineModal.hidden) return;
-      if (event.key === 'Escape') { event.preventDefault(); closeMagazine(); return; }
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turnToMagazinePage(magazineIndex + 1); }
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turnToMagazinePage(magazineIndex - 1); }
-      if (event.key === 'Tab') {
-        const focusable = $$('button:not(:disabled), a[href]', magazineModal).filter(el => el.offsetParent !== null);
-        if (!focusable.length) return;
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (!magazineModal.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
-        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }
-    });
-    let touchStartX = 0, touchStartY = 0;
-    magazineBook.addEventListener('touchstart', event => {
-      if (!event.changedTouches.length) return;
-      touchStartX = event.changedTouches[0].clientX;
-      touchStartY = event.changedTouches[0].clientY;
-    }, { passive: true });
-    magazineBook.addEventListener('touchend', event => {
-      if (!event.changedTouches.length) return;
-      const dx = event.changedTouches[0].clientX - touchStartX;
-      const dy = event.changedTouches[0].clientY - touchStartY;
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) turnToMagazinePage(magazineIndex + (dx < 0 ? 1 : -1));
-    }, { passive: true });
-  }
-  // Guard unconfigured links on the main landing page too, rather than sending guests to dummy URLs.
-  if (rsvpLink) rsvpLink.addEventListener('click', event => {
-    if (/your_username/i.test(RSVP_URL)) { event.preventDefault(); showSiteToast('Добавь свой Telegram в RSVP_URL в script.js перед публикацией.'); }
-  });
-  if (wishlistLink) wishlistLink.addEventListener('click', event => {
-    if (/your-wishlist|example\.com/i.test(WISHLIST_URL)) { event.preventDefault(); showSiteToast('Укажи ссылку на вишлист в WISHLIST_URL в script.js перед публикацией.'); }
-  });
+      if (event.target.closest('[data-mag-calendar]')) downloadCalendar();
 
+      // Tapping near the page edge is another intuitive way to flip the book.
+      if (event.target.closest('button, a')) return;
+      const page = event.target.closest('.magazine-page-right, .magazine-page-left');
+      if (!page || magazineIsMobile()) return;
+      const rect = page.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      if (page.classList.contains('magazine-page-right') && x > rect.width * .76) turnToPage(magazineIndex + 1);
+      else if (page.classList.contains('magazine-page-left') && x < rect.width * .24) turnToPage(magazineIndex - 1);
+    });
+
+    magazineBook?.addEventListener('pointermove', event => {
+      if (event.pointerType !== 'mouse' || magazineIsMobile() || magazineBusy || reduceMotion) return;
+      const rect = magazineBook.getBoundingClientRect();
+      const nx = (event.clientX - rect.left) / Math.max(rect.width, 1) * 2 - 1;
+      const ny = (event.clientY - rect.top) / Math.max(rect.height, 1) * 2 - 1;
+      magazineBook.style.setProperty('--book-tilt-x', `${(-ny * 1.1).toFixed(2)}deg`);
+      magazineBook.style.setProperty('--book-tilt-y', `${(nx * 1.25).toFixed(2)}deg`);
+      magazineModal.style.setProperty('--turn-light-x', `${(50 + nx * 18).toFixed(2)}%`);
+      magazineBook.classList.add('magazine-hovering');
+    });
+    magazineBook?.addEventListener('pointerleave', () => {
+      magazineBook?.style.setProperty('--book-tilt-x', '0deg');
+      magazineBook?.style.setProperty('--book-tilt-y', '0deg');
+      magazineModal?.style.setProperty('--turn-light-x', '50%');
+      magazineBook?.classList.remove('magazine-hovering');
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turnToPage(magazineIndex + 1); }
+      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turnToPage(magazineIndex - 1); }
+      if (event.key === 'Home') { event.preventDefault(); returnToCover(); }
+    });
+
+    magazineBook?.addEventListener('pointerdown', startPageGesture);
+    magazineBook?.addEventListener('pointermove', movePageGesture, { passive: false });
+    magazineBook?.addEventListener('pointerup', event => endPageGesture(event, false));
+    magazineBook?.addEventListener('pointercancel', event => endPageGesture(event, true));
+  }
+
+  // The book is the actual site now: build the first spread immediately.
+  setSpread(0);
+  updateControls();
 })();
