@@ -725,6 +725,136 @@
     requestAnimationFrame(draw);
   }
 
+  /* ── CINEMATIC SCROLL ENGINE ─────────────────────────────────────── */
+  const progressFill = $('#scrollProgressFill');
+  const marqueeStrip = $('.marquee-strip');
+  const heroSection = $('#hero');
+  const heroFadeEls = $$('[data-hero-fade]');
+  const driftSections = $$('.about-section, .rsvp-section');
+
+  // Elements that float at their own speed while the page scrolls.
+  const parallaxEls = $$('[data-parallax]').map(el => ({
+    el,
+    speed: parseFloat(el.dataset.parallax) || 0.06,
+    base: 0,
+    current: 0,
+    target: 0,
+  }));
+
+  const measureParallaxBases = () => {
+    parallaxEls.forEach(p => {
+      const r = p.el.getBoundingClientRect();
+      // Distance of the element center from viewport center, unshifted.
+      p.base = (r.top + r.height / 2) - p.current;
+    });
+  };
+
+  // Word-by-word reveal for the big titles.
+  const titles = $$('.section-title, .letter-title, .rsvp-headline, .countdown-title, .wishlist-title');
+  titles.forEach(title => {
+    const html = title.innerHTML.trim();
+    const words = html.split(/(\s+|<br\s*\/?>)/).filter(Boolean);
+    const frag = document.createElement('span');
+    frag.className = 'title-words';
+    let wi = 0;
+    words.forEach(part => {
+      if (/^<br/.test(part)) { frag.appendChild(document.createElement('br')); return; }
+      if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(' ')); return; }
+      const w = document.createElement('span');
+      w.className = 'tw';
+      const inner = document.createElement('i');
+      inner.textContent = part;
+      inner.style.setProperty('--i', wi++);
+      w.appendChild(inner);
+      frag.appendChild(w);
+    });
+    title.innerHTML = '';
+    title.appendChild(frag);
+  });
+
+  let titleObserver = null;
+  if ('IntersectionObserver' in window) {
+    titleObserver = new IntersectionObserver((entries, obs) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.querySelector('.title-words')?.classList.add('is-in');
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.4 });
+    titles.forEach(t => titleObserver.observe(t));
+  } else {
+    $$('.title-words').forEach(t => t.classList.add('is-in'));
+  }
+
+  let scrollRaf = 0;
+  let lastScrollY = window.scrollY;
+  let marqueeShift = 0;
+
+  const cinematicFrame = () => {
+    const y = window.scrollY;
+    const vh = window.innerHeight;
+    const max = Math.max(1, document.documentElement.scrollHeight - vh);
+
+    // Reading progress bar.
+    if (progressFill) progressFill.style.width = `${(y / max) * 100}%`;
+
+    // Marquee drifts with scroll velocity (cinematic side-scroll).
+    if (marqueeStrip) {
+      marqueeShift += (y - lastScrollY) * 0.55;
+      marqueeShift *= 0.9;
+      marqueeStrip.style.setProperty('--mx', `${marqueeShift.toFixed(2)}px`);
+      marqueeStrip.style.transform = `rotate(-.6deg) scale(1.02) translateX(${marqueeShift.toFixed(2)}px)`;
+    }
+
+    // Hero layers recede and fade like a camera dolly-out.
+    if (heroSection && heroFadeEls.length) {
+      const heroH = heroSection.offsetHeight || vh;
+      const p = Math.min(1, Math.max(0, y / (heroH * 0.85)));
+      heroFadeEls.forEach((el, i) => {
+        const dir = i === 0 ? 1 : 0.45;
+        el.style.opacity = String(1 - p * 0.92);
+        el.style.transform = `translate3d(0, ${(y * 0.18 * dir).toFixed(1)}px, 0)`;
+      });
+    }
+
+    // Per-element parallax with light easing. Uses the `translate`
+    // property so it composes with CSS transforms (rotations, tilts).
+    parallaxEls.forEach(p => {
+      p.target = -(p.base - y - vh / 2) * p.speed;
+      p.current += (p.target - p.current) * 0.09;
+      if (Math.abs(p.current) > 0.05) {
+        p.el.style.translate = `0 ${p.current.toFixed(2)}px`;
+      } else if (p.el.style.translate) {
+        p.el.style.translate = '';
+      }
+    });
+
+    // Giant outline words in section backgrounds drift on the same rail.
+    driftSections.forEach(section => {
+      const r = section.getBoundingClientRect();
+      const drift = (r.top + r.height / 2 - vh / 2) * 0.06;
+      section.style.setProperty('--bg-drift', `${drift.toFixed(1)}px`);
+    });
+
+    lastScrollY = y;
+    scrollRaf = requestAnimationFrame(cinematicFrame);
+  };
+
+  if (!reduceMotion) {
+    measureParallaxBases();
+    window.addEventListener('resize', measureParallaxBases);
+    window.addEventListener('load', measureParallaxBases);
+    scrollRaf = requestAnimationFrame(cinematicFrame);
+  } else if (progressFill) {
+    const fill = () => {
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      progressFill.style.width = `${(window.scrollY / max) * 100}%`;
+    };
+    window.addEventListener('scroll', fill, { passive: true });
+    fill();
+  }
+
   /* ── HERO ENTRANCE ───────────────────────────────────────────────── */
   if (!reduceMotion) {
     document.body.classList.add('is-ready');

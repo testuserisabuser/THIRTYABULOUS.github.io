@@ -24,6 +24,9 @@
   <!-- Canvas для WebGL / 2D динамических искр и шейдеров -->
   <canvas id="bgCanvas" class="bg-canvas" aria-hidden="true"></canvas>
 
+  <!-- Полоса прогресса чтения страницы -->
+  <div class="scroll-progress" id="scrollProgress" aria-hidden="true"><span id="scrollProgressFill"></span></div>
+
   <!-- Интерактивный кастомный курсор (только десктоп) -->
   <div class="custom-cursor" id="cursor" aria-hidden="true">
     <div class="cursor-dot"></div>
@@ -104,14 +107,14 @@
          ======================================================== -->
     <section class="hero" id="hero">
       <div class="hero-ambient-lights" aria-hidden="true">
-        <div class="glow-orb orb-1"></div>
-        <div class="glow-orb orb-2"></div>
-        <div class="glow-orb orb-3"></div>
+        <div class="glow-orb orb-1" data-parallax="0.14"></div>
+        <div class="glow-orb orb-2" data-parallax="0.22"></div>
+        <div class="glow-orb orb-3" data-parallax="0.1"></div>
       </div>
 
       <div class="hero-container">
         <!-- Левая колонка с текстом и CTA -->
-        <div class="hero-content">
+        <div class="hero-content" data-hero-fade>
           <div class="hero-tag-wrap">
             <span class="hero-pill">
               <span class="pulse-spark" aria-hidden="true"></span>
@@ -166,7 +169,7 @@
         </div>
 
         <!-- Правая колонка с интерактивной 3D-карточкой-фотографией -->
-        <div class="hero-visual">
+        <div class="hero-visual" data-hero-fade>
           <div class="photo-card-tilt" id="heroPhotoTilt" data-tilt>
             <div class="tilt-glare" aria-hidden="true"></div>
             <div class="tilt-inner">
@@ -284,7 +287,7 @@
         <div class="editorial-letter-grid">
           <!-- Левая колонка: акцентные карточки и цифра -->
           <div class="letter-side reveal-left">
-            <div class="giant-year-stamp">
+            <div class="giant-year-stamp" data-parallax="0.08">
               <span class="stamp-bg-text">30</span>
               <div class="stamp-content">
                 <span class="stamp-small">NEW ERA UNLOCKED</span>
@@ -293,7 +296,7 @@
               </div>
             </div>
 
-            <div class="polaroid-card">
+            <div class="polaroid-card" data-parallax="0.05">
               <div class="polaroid-pin">📍</div>
               <div class="polaroid-photo">
                 <img src="img/girls-party.webp" alt="Воспоминания" class="polaroid-img">
@@ -353,7 +356,7 @@
 
         <div class="program-cards-grid">
           <!-- Акт 1 -->
-          <article class="program-card card-pink reveal-up" style="--delay: 0.1s">
+          <article class="program-card card-pink reveal-up" style="--delay: 0.1s" data-parallax="0.045">
             <div class="card-glow" aria-hidden="true"></div>
             <div class="pcard-header">
               <span class="pcard-act">АКТ 01 · 11:00</span>
@@ -381,7 +384,7 @@
           </article>
 
           <!-- Акт 2 -->
-          <article class="program-card card-dark reveal-up" style="--delay: 0.2s">
+          <article class="program-card card-dark reveal-up" style="--delay: 0.2s" data-parallax="0.09">
             <div class="card-glow" aria-hidden="true"></div>
             <div class="pcard-header">
               <span class="pcard-act">АКТ 02 · 13:30</span>
@@ -409,7 +412,7 @@
           </article>
 
           <!-- Акт 3 -->
-          <article class="program-card card-rose reveal-up" style="--delay: 0.3s">
+          <article class="program-card card-rose reveal-up" style="--delay: 0.3s" data-parallax="0.13">
             <div class="card-glow" aria-hidden="true"></div>
             <div class="pcard-header">
               <span class="pcard-act">АКТ 03 · 15:30</span>
@@ -553,7 +556,7 @@
         <div class="timeline-grid">
           <!-- Левая часть: VIP-билет посадочный талон -->
           <div class="ticket-side reveal-left">
-            <div class="boarding-pass" id="boardingPass">
+            <div class="boarding-pass" id="boardingPass" data-parallax="0.05">
               <div class="pass-header">
                 <div class="pass-logo">
                   <span class="pass-dot"></span>
@@ -697,7 +700,7 @@
     <section class="wishlist-section" id="wishlist">
       <div class="section-container">
         <div class="wishlist-glass-card reveal-up">
-          <div class="wishlist-art" aria-hidden="true">
+          <div class="wishlist-art" data-parallax="0.07" aria-hidden="true">
             <div class="floating-gift-box">
               <span class="gift-emoji-big">🎁</span>
               <div class="gift-glow-ring"></div>
